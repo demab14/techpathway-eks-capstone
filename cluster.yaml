@@ -1,0 +1,14 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+metadata:
+  name: techpathway-cluster
+  region: eu-west-2
+  version: "1.36"
+managedNodeGroups:
+  - name: techpathway-ng
+    instanceType: t3.medium
+    desiredCapacity: 3
+    minSize: 2
+    maxSize: 4
+    volumeSize: 20
+    labels: { project: techpathway }

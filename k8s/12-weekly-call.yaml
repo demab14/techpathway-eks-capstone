@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: weekly-call
+  namespace: techpathway
+  labels: { app: weekly-call }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: weekly-call }
+  template:
+    metadata:
+      labels: { app: weekly-call }
+    spec:
+      containers:
+        - name: weekly-call
+          image: 743676310994.dkr.ecr.eu-west-2.amazonaws.com/weekly-call:v1
+          ports:
+            - containerPort: 5111
+          envFrom:
+            - configMapRef: { name: weekly-call-config }
+            - secretRef:    { name: weekly-call-secret }
+          resources:
+            requests: { cpu: 100m, memory: 192Mi }
+            limits:   { cpu: 500m, memory: 384Mi }
+          readinessProbe:
+            httpGet: { path: /health, port: 5111 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: 5111 }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: weekly-call
+  namespace: techpathway
+  labels: { app: weekly-call }
+spec:
+  type: LoadBalancer
+  selector: { app: weekly-call }
+  ports:
+    - port: 5111
+      targetPort: 5111

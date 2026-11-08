@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: weekly-call-config
+  namespace: techpathway
+data:
+  FLASK_ENV: "production"
+  NOTIFICATION_SERVICE_URL: "http://action-messages:5001"
+  WAREHOUSE_SERVICE_URL: "http://techpathway-warehouse:5002"
+  NOTIFICATION_PUBLIC_URL: "http://ab9111df9568b4319ba80d3a40c446d8-1705117323.eu-west-2.elb.amazonaws.com:5001"
+  WAREHOUSE_PUBLIC_URL: "http://abf83c35dbf4f4227ae43d56d7008ba8-410300185.eu-west-2.elb.amazonaws.com:5002"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: action-messages-config
+  namespace: techpathway
+data:
+  FROM_EMAIL: "orders@techpathway.example"
+  FROM_NAME: "The Techpathway Team, Weekly Class"
+  ALWAYS_CC_EMAIL: "m.olujobi1@gmail.com"
+  SMTP_HOST: ""
+  SMTP_PORT: "587"
