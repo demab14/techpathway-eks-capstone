@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Deployed by CI/CD on every push to main. The namespace, Secrets and ConfigMaps
+# are one-off platform bootstrap (redeploy.sh), so the pipeline never touches secrets.
+namespace: techpathway
+resources:
+  - 10-action-messages.yaml
+  - 11-techpathway-warehouse.yaml
+  - 12-weekly-call.yaml
+  - 20-hpa.yaml
+# The pipeline rewrites newTag to the short commit SHA before applying.
+images:
+  - name: 743676310994.dkr.ecr.eu-west-2.amazonaws.com/action-messages
+    newTag: v1
+  - name: 743676310994.dkr.ecr.eu-west-2.amazonaws.com/techpathway-warehouse
+    newTag: v1
+  - name: 743676310994.dkr.ecr.eu-west-2.amazonaws.com/weekly-call
+    newTag: v1

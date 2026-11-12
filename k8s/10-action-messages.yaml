@@ -5,7 +5,7 @@ metadata:
   namespace: techpathway
   labels: { app: action-messages }
 spec:
-  replicas: 1
+  # no "replicas": the HorizontalPodAutoscaler owns the replica count
   selector:
     matchLabels: { app: action-messages }
   template:

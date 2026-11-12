@@ -4,6 +4,8 @@ metadata:
   name: techpathway-cluster
   region: eu-west-2
   version: "1.36"
+accessConfig:
+  authenticationMode: API_AND_CONFIG_MAP   # lets cicd/grant-eks-access.sh add the pipeline role
 managedNodeGroups:
   - name: techpathway-ng
     instanceType: t3.medium

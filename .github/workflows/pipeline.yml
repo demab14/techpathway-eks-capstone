@@ -1,0 +1,162 @@
+name: techpathway-pipeline
+
+# Pull requests: validate + build + scan (no AWS access, nothing deployed).
+# Push to main / manual run: the same, then push images to ECR and deploy to EKS.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - "apps/**"
+      - "k8s/**"
+      - ".github/workflows/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: eu-west-2
+  CLUSTER_NAME: techpathway-cluster
+  NAMESPACE: techpathway
+  APP_REPO: sholaolujobi/TechPathway--Website   # application source owned by the dev team
+
+concurrency:
+  group: techpathway-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  validate:
+    name: Validate Dockerfiles and manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint Dockerfiles (hadolint)
+        run: |
+          for f in apps/*/Dockerfile; do
+            echo "::group::$f"
+            docker run --rm -i hadolint/hadolint:v2.12.0 hadolint --failure-threshold error - < "$f"
+            echo "::endgroup::"
+          done
+
+      - name: Validate Kubernetes manifests (kustomize + kubeconform)
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
+          kubectl kustomize k8s/ | ./kubeconform -strict -summary
+
+  build:
+    name: Build and scan ${{ matrix.app }}
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # lets the job request a short-lived OIDC token for AWS
+    strategy:
+      fail-fast: true
+      matrix:
+        app: [action-messages, techpathway-warehouse, weekly-call]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out application source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.APP_REPO }}
+          path: src
+
+      - name: Use the DevOps-owned Dockerfile
+        run: cp "apps/${{ matrix.app }}/Dockerfile" "apps/${{ matrix.app }}/.dockerignore" "src/${{ matrix.app }}/"
+
+      - name: Build image
+        run: docker build -t "${{ matrix.app }}:ci" "src/${{ matrix.app }}"
+
+      - name: Scan image (Trivy, report only)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ matrix.app }}:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
+
+      - name: Configure AWS credentials (OIDC, no stored keys)
+        if: github.event_name != 'pull_request'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        if: github.event_name != 'pull_request'
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Push image tagged with the commit SHA
+        if: github.event_name != 'pull_request'
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          APP: ${{ matrix.app }}
+        run: |
+          IMAGE="$REGISTRY/$APP:${GITHUB_SHA::7}"
+          docker tag "$APP:ci" "$IMAGE"
+          docker push "$IMAGE"
+          echo "Pushed \`$IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Deploy to EKS
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production   # add required reviewers in repo settings for a manual approval gate
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Connect kubectl to EKS
+        run: aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$AWS_REGION"
+
+      - name: Point the manifests at this commit's images
+        run: |
+          export TAG="${GITHUB_SHA::7}"
+          yq -i '.images[].newTag = strenv(TAG)' k8s/kustomization.yaml
+          kubectl kustomize k8s/ | grep 'image:'
+
+      - name: Apply manifests
+        id: apply
+        run: kubectl apply -k k8s/
+
+      - name: Wait for rollouts
+        run: |
+          for d in action-messages techpathway-warehouse weekly-call; do
+            kubectl rollout status "deployment/$d" -n "$NAMESPACE" --timeout=180s
+          done
+
+      - name: Smoke test through the load balancers
+        run: |
+          for s in action-messages:5001 techpathway-warehouse:5002 weekly-call:5111; do
+            name="${s%%:*}"; port="${s##*:}"
+            host=$(kubectl get svc "$name" -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+            echo "GET http://$host:$port/health"
+            curl -sf --retry 30 --retry-delay 10 --retry-all-errors "http://$host:$port/health"
+            echo
+          done
+          {
+            echo "### Deployed ${GITHUB_SHA::7} to $CLUSTER_NAME"
+            kubectl get deploy -n "$NAMESPACE" -o custom-columns='DEPLOYMENT:.metadata.name,READY:.status.readyReplicas,IMAGE:.spec.template.spec.containers[0].image'
+          } | sed 's/^/    /' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Roll back on failure
+        if: failure() && steps.apply.outcome == 'success'
+        run: |
+          for d in action-messages techpathway-warehouse weekly-call; do
+            kubectl rollout undo "deployment/$d" -n "$NAMESPACE"
+          done

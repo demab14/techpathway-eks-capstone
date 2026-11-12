@@ -5,7 +5,7 @@ metadata:
   namespace: techpathway
   labels: { app: weekly-call }
 spec:
-  replicas: 1
+  # no "replicas": the HorizontalPodAutoscaler owns the replica count
   selector:
     matchLabels: { app: weekly-call }
   template:
