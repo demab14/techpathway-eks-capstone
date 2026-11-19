@@ -33,7 +33,10 @@ for r in action-messages techpathway-warehouse weekly-call; do
   fi
 done
 
-echo "==> 3/4 IAM role $ROLE (trusted only by $GITHUB_REPO main branch + production environment)"
+# GitHub may use the immutable subject format (repo:owner@ID/repo@ID); read the repo's real prefix.
+SUB_PREFIX=$(gh api "repos/${GITHUB_REPO}/actions/oidc/customization/sub" -q '.sub_claim_prefix // empty' 2>/dev/null || true)
+SUB_PREFIX="${SUB_PREFIX:-repo:${GITHUB_REPO}}"
+echo "==> 3/4 IAM role $ROLE (trusted only by ${SUB_PREFIX} main branch + production environment)"
 cat > /tmp/trust.json <<EOF
 {
   "Version": "2012-10-17",
@@ -44,8 +47,8 @@ cat > /tmp/trust.json <<EOF
     "Condition": {
       "StringEquals": { "token.actions.githubusercontent.com:aud": "sts.amazonaws.com" },
       "StringLike": { "token.actions.githubusercontent.com:sub": [
-        "repo:${GITHUB_REPO}:ref:refs/heads/main",
-        "repo:${GITHUB_REPO}:environment:production"
+        "${SUB_PREFIX}:ref:refs/heads/main",
+        "${SUB_PREFIX}:environment:production"
       ] }
     }
   }]

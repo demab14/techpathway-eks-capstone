@@ -182,6 +182,8 @@ Each scenario was broken deliberately on the Warehouse Deployment, then diagnose
 | All Grafana panels showed errors | Repeated "Add data source" attempts created three data sources; the default one had an empty URL | Set the correct URL on the default data source and deleted the duplicates through the Grafana API |
 | Community dashboard 15757 showed no data | It expects `cluster` / `job` labels added by kube-prometheus-stack | Built a dashboard with queries matching this Prometheus chart |
 | `kubectl rollout undo` risk | Undo goes back one revision, not to "the last good one" | Use `kubectl rollout history` and `--to-revision=N` |
+| CI/CD deploy failed: `Not authorized to perform sts:AssumeRoleWithWebIdentity` | The repository uses GitHub's immutable OIDC subject (`repo:owner@ID/repo@ID`), but the IAM trust policy matched the repo name only | Scoped the trust policy to the repository and owner IDs; `setup-aws-oidc.sh` now reads the prefix from the GitHub API |
+| CI/CD job failed at "Set up job" | `trivy-action@0.28.0` does not exist; its releases are tagged with a `v` prefix | Pinned Trivy to the `v0.36.0` commit SHA |
 
 ## Known limitations and next steps
 
